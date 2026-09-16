@@ -332,7 +332,7 @@ export default function Desktop() {
               id="pickup"
               type="text"
               value={settings.pickupNote}
-              placeholder="Near Hurontario & Eglinton. Evenings and weekends."
+              placeholder="Nearest major intersection. Evenings and weekends."
               onChange={(e) => void saveSettings({ pickupNote: e.target.value })}
             />
             <p className="help">

@@ -13,7 +13,7 @@ import type { Item, ListingCopy, SellerContext } from "./types.ts";
 const context: SellerContext = {
   hint: "",
   city: "Mississauga, ON",
-  pickupNote: "Near Hurontario & Eglinton.",
+  pickupNote: "Evenings and weekends.",
 };
 
 function makeItem(overrides: Partial<Item> = {}): Item {
