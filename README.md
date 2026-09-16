@@ -48,6 +48,20 @@ enforced by disabling accounts rather than by warning them. A Marketplace ban is
 hard to appeal and not worth risking on a family account to save thirty seconds
 of pasting. So this app does every part of the job except the final click.
 
+## Try the walkthrough first
+
+`docs/demo.html` is a clickable four-step walkthrough — phone, inbox, review,
+paste — built around one worked example. It runs anywhere, needs no key, and
+analyses nothing; it exists so you can judge the flow before installing.
+
+The workflow in `.github/workflows/pages.yml` deploys it to GitHub Pages. It
+needs one setting flipped once: **Settings → Pages → Source → GitHub Actions**.
+After that every push to `docs/demo.html` redeploys it.
+
+The real app cannot be hosted on Pages, which serves static files only. It needs
+a server for three things: keeping the API key out of the browser, storing
+photos, and receiving the phone's upload.
+
 ## Setup
 
 On the laptop, once. Requires Node 20 or newer.

@@ -1,0 +1,60 @@
+name: Deploy walkthrough to GitHub Pages
+
+# The walkthrough in docs/demo.html is authored as a fragment so the same file
+# can be published both here and as a standalone page. This wraps it in a
+# minimal HTML document and deploys that.
+
+on:
+  push:
+    branches:
+      - main
+      - claude/adoring-clarke-fl9b3s
+    paths:
+      - docs/demo.html
+      - .github/workflows/pages.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Let a running deploy finish rather than cancelling it mid-publish.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Wrap the fragment in a page
+        run: |
+          mkdir -p _site
+          {
+            printf '%s' '<!doctype html><html lang="en-CA"><head>'
+            printf '%s' '<meta charset="utf-8">'
+            printf '%s' '<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">'
+            printf '%s' '<style>body{margin:0}img{max-width:100%}[hidden]{display:none!important}</style>'
+            printf '%s' '</head><body>'
+            cat docs/demo.html
+            printf '%s' '</body></html>'
+          } > _site/index.html
+          # GitHub Pages runs Jekyll by default, which would eat the file.
+          touch _site/.nojekyll
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
