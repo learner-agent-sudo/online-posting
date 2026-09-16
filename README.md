@@ -54,9 +54,14 @@ of pasting. So this app does every part of the job except the final click.
 paste — built around one worked example. It runs anywhere, needs no key, and
 analyses nothing; it exists so you can judge the flow before installing.
 
-The workflow in `.github/workflows/pages.yml` deploys it to GitHub Pages. It
-needs one setting flipped once: **Settings → Pages → Source → GitHub Actions**.
-After that every push to `docs/demo.html` redeploys it.
+The workflow in `.github/workflows/pages.yml` deploys it to GitHub Pages, but
+it cannot enable Pages for you — no workflow can. Do this once:
+
+**Settings → Pages → Source → GitHub Actions**
+
+Until that is set, the deploy step fails with a 404 and the site URL 404s too.
+Once it is set, re-run the workflow from the Actions tab and every later push
+redeploys automatically.
 
 The real app cannot be hosted on Pages, which serves static files only. It needs
 a server for three things: keeping the API key out of the browser, storing

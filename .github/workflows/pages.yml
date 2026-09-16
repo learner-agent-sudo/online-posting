@@ -3,15 +3,18 @@ name: Deploy walkthrough to GitHub Pages
 # The walkthrough in docs/demo.html is authored as a fragment so the same file
 # can be published both here and as a standalone page. This wraps it in a
 # minimal HTML document and deploys that.
+#
+# One-time setup, which no workflow can do for you: Settings -> Pages ->
+# Source -> GitHub Actions. Until that is set, the deploy step fails with a
+# 404 and the site URL stays a 404 as well.
 
 on:
   push:
+    # Deliberately no paths filter. A redeploy on every push to these branches
+    # costs half a minute and removes the "why didn't it publish?" question.
     branches:
       - main
       - claude/adoring-clarke-fl9b3s
-    paths:
-      - docs/demo.html
-      - .github/workflows/pages.yml
   workflow_dispatch:
 
 permissions:
@@ -28,7 +31,7 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Wrap the fragment in a page
         run: |
@@ -42,10 +45,24 @@ jobs:
             cat docs/demo.html
             printf '%s' '</body></html>'
           } > _site/index.html
-          # GitHub Pages runs Jekyll by default, which would eat the file.
+          # Pages ignores Jekyll entirely when the source is GitHub Actions, but
+          # this keeps the output correct if the source is ever switched back.
           touch _site/.nojekyll
 
-      - uses: actions/upload-pages-artifact@v3
+      - name: Check the page came out whole
+        run: |
+          # A silently truncated or empty page is worse than a failed build,
+          # because it deploys and looks fine until you click something.
+          test -s _site/index.html || { echo "::error::_site/index.html is empty"; exit 1; }
+          grep -q '<title>ListKit Walkthrough</title>' _site/index.html \
+            || { echo "::error::title missing — the fragment did not get copied in"; exit 1; }
+          grep -q '</body></html>$' _site/index.html \
+            || { echo "::error::closing tags missing — the wrap did not finish"; exit 1; }
+          grep -q 'data-step="3"' _site/index.html \
+            || { echo "::error::step rail missing — the fragment looks truncated"; exit 1; }
+          echo "index.html looks complete ($(wc -c < _site/index.html) bytes)"
+
+      - uses: actions/upload-pages-artifact@v5
         with:
           path: _site
 
@@ -57,4 +74,14 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5
+
+      - name: Where it went
+        run: echo "Published to ${{ steps.deployment.outputs.page_url }}"
+
+      - name: Why the deploy failed
+        if: failure()
+        run: |
+          echo "::error::Deploy failed. The usual cause is that GitHub Pages is not enabled yet."
+          echo "Open https://github.com/${GITHUB_REPOSITORY}/settings/pages,"
+          echo "set Source to 'GitHub Actions', then re-run this workflow."
