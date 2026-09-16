@@ -1,17 +1,24 @@
 import { NextResponse } from "next/server";
+import { z } from "zod";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import { getClient, describeError, MODEL } from "@/lib/anthropic";
-import { AnalyzeRequestSchema } from "@/lib/api-contract";
-import { DraftSchema } from "@/lib/types";
+import { DraftSchema, type SellerContext } from "@/lib/types";
 import { analysisSystemPrompt, analysisUserText } from "@/lib/prompt";
 import { lookupIsbn } from "@/lib/books";
 import type { BookFacts } from "@/lib/books";
+import { getItem, loadSettings, readPhotosAsBase64, updateItem } from "@/lib/store";
 
 export const runtime = "nodejs";
 // Photo analysis with thinking on can take a while; do not let the platform
 // cut it off at the default 15s.
 export const maxDuration = 120;
 
+const RequestSchema = z.object({ itemId: z.string().min(1) });
+
+/**
+ * Reads photos back off the laptop's disk rather than taking them in the
+ * request, so the phone is free the moment it has finished uploading.
+ */
 export async function POST(request: Request) {
   let body: unknown;
   try {
@@ -20,16 +27,26 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Malformed request body." }, { status: 400 });
   }
 
-  const parsed = AnalyzeRequestSchema.safeParse(body);
+  const parsed = RequestSchema.safeParse(body);
   if (!parsed.success) {
-    return NextResponse.json(
-      { error: parsed.error.issues[0]?.message ?? "Invalid request." },
-      { status: 400 },
-    );
+    return NextResponse.json({ error: "Invalid request." }, { status: 400 });
   }
-  const { photos, context } = parsed.data;
+
+  const item = await getItem(parsed.data.itemId);
+  if (!item) return NextResponse.json({ error: "No such item." }, { status: 404 });
+  if (item.photos.length === 0) {
+    return NextResponse.json({ error: "That item has no photos." }, { status: 400 });
+  }
+
+  const settings = await loadSettings();
+  const context: SellerContext = {
+    hint: item.note,
+    city: settings.city,
+    pickupNote: settings.pickupNote,
+  };
 
   try {
+    const photos = await readPhotosAsBase64(item);
     const client = getClient();
 
     const response = await client.messages.parse({
@@ -44,7 +61,7 @@ export async function POST(request: Request) {
               type: "image" as const,
               source: {
                 type: "base64" as const,
-                media_type: photo.media_type,
+                media_type: photo.media_type as "image/jpeg",
                 data: photo.data,
               },
             })),
@@ -80,7 +97,8 @@ export async function POST(request: Request) {
       }
     }
 
-    return NextResponse.json({ draft, enrichment });
+    const saved = await updateItem(item.id, { draft });
+    return NextResponse.json({ item: saved, enrichment });
   } catch (err) {
     const failure = describeError(err);
     return NextResponse.json({ error: failure.message }, { status: failure.status });

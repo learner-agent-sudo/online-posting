@@ -1,12 +1,15 @@
 import { NextResponse } from "next/server";
+import { z } from "zod";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import { getClient, describeError, MODEL } from "@/lib/anthropic";
-import { RewriteRequestSchema } from "@/lib/api-contract";
-import { ListingCopySchema } from "@/lib/types";
+import { ItemSchema, ListingCopySchema, type SellerContext } from "@/lib/types";
 import { rewriteSystemPrompt, rewriteUserText } from "@/lib/prompt";
+import { getItem, loadSettings, updateItem } from "@/lib/store";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
+
+const RequestSchema = z.object({ itemId: z.string().min(1), item: ItemSchema });
 
 /**
  * Second pass: the seller fixed the facts, so only the listing text is redone.
@@ -20,14 +23,24 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Malformed request body." }, { status: 400 });
   }
 
-  const parsed = RewriteRequestSchema.safeParse(body);
+  const parsed = RequestSchema.safeParse(body);
   if (!parsed.success) {
     return NextResponse.json(
       { error: parsed.error.issues[0]?.message ?? "Invalid request." },
       { status: 400 },
     );
   }
-  const { item, context } = parsed.data;
+  const { itemId, item } = parsed.data;
+
+  const stored = await getItem(itemId);
+  if (!stored) return NextResponse.json({ error: "No such item." }, { status: 404 });
+
+  const settings = await loadSettings();
+  const context: SellerContext = {
+    hint: stored.note,
+    city: settings.city,
+    pickupNote: settings.pickupNote,
+  };
 
   try {
     const client = getClient();
@@ -57,7 +70,8 @@ export async function POST(request: Request) {
       );
     }
 
-    return NextResponse.json({ copy });
+    const saved = await updateItem(itemId, { draft: { item, copy } });
+    return NextResponse.json({ item: saved });
   } catch (err) {
     const failure = describeError(err);
     return NextResponse.json({ error: failure.message }, { status: failure.status });
