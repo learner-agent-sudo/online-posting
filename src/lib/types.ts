@@ -88,6 +88,41 @@ export type Dimensions = z.infer<typeof DimensionsSchema>;
 export type BookDetails = z.infer<typeof BookDetailsSchema>;
 export type Price = z.infer<typeof PriceSchema>;
 
+/**
+ * What comparable items are going for, found by searching the live web.
+ *
+ * Important distinction: these are ASKING prices on listings that are still up,
+ * not sold prices. Things that are overpriced are exactly the ones still
+ * sitting there, so the range skews high. It is evidence, not an appraisal.
+ */
+export const CompExampleSchema = z.object({
+  /** How the listing described it, short. */
+  label: z.string(),
+  price_cad: z.number(),
+  /** Kijiji, Facebook Marketplace, a retailer, wherever it was found. */
+  where: z.string(),
+  url: z.string(),
+});
+
+export const CompsFindingsSchema = z.object({
+  low_cad: z.number(),
+  high_cad: z.number(),
+  typical_cad: z.number(),
+  /** Two sentences at most, written for the seller to read. */
+  summary: z.string(),
+  examples: z.array(CompExampleSchema),
+  /** How much the search actually turned up. Low means treat it as a hint. */
+  confidence: z.enum(["low", "medium", "high"]),
+});
+
+export const CompsSchema = CompsFindingsSchema.extend({
+  searchedAt: z.string(),
+});
+
+export type CompExample = z.infer<typeof CompExampleSchema>;
+export type CompsFindings = z.infer<typeof CompsFindingsSchema>;
+export type Comps = z.infer<typeof CompsSchema>;
+
 /** Per-channel listing text, already trimmed to that site's limits. */
 export const ListingCopySchema = z.object({
   facebook_title: z.string(),

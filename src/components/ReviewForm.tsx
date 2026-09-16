@@ -3,6 +3,8 @@
 import { useState } from "react";
 import { CONDITIONS, CONDITION_LABELS, type Condition, type Item } from "@/lib/types";
 import type { BookFacts } from "@/lib/books";
+import CompsCard from "./CompsCard";
+import type { Comps } from "@/lib/types";
 
 interface Props {
   item: Item;
@@ -10,6 +12,11 @@ interface Props {
   enrichment: BookFacts | null;
   onRegenerate: () => void;
   regenerating: boolean;
+  comps: Comps | null;
+  researching: boolean;
+  onResearch: () => void;
+  mentionComps: boolean;
+  onToggleMentionComps: (value: boolean) => void;
 }
 
 /** Editable list of short strings — flaws, included bits, selling points. */
@@ -81,6 +88,11 @@ export default function ReviewForm({
   enrichment,
   onRegenerate,
   regenerating,
+  comps,
+  researching,
+  onResearch,
+  mentionComps,
+  onToggleMentionComps,
 }: Props) {
   function patch(changes: Partial<Item>) {
     onChange({ ...item, ...changes });
@@ -248,10 +260,20 @@ export default function ReviewForm({
           Estimated range ${item.price.low_cad}–${item.price.high_cad}. {item.price.rationale}
         </p>
         <p className="help">
-          This is the model&apos;s guess from photos, not real sales data. Worth a
-          minute searching the same item on Kijiji before you commit to it.
+          A guess from the photos. The price lookup below checks what comparable
+          ones are actually listed at right now.
         </p>
       </div>
+
+      <CompsCard
+        comps={comps}
+        askingCad={item.price.asking_cad}
+        researching={researching}
+        onResearch={onResearch}
+        onUsePrice={(price) => patch({ price: { ...item.price, asking_cad: price } })}
+        mentionInListing={mentionComps}
+        onToggleMention={onToggleMentionComps}
+      />
 
       <div className="card">
         <h2>Details</h2>

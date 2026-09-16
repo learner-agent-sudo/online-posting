@@ -143,3 +143,52 @@ test("an empty city does not leave a dangling Location field", () => {
   const labels = buildPack(makeItem(), copy, { ...context, city: "" }, "facebook").map((f) => f.label);
   assert.ok(!labels.includes("Location"));
 });
+
+const comps = {
+  low_cad: 30,
+  high_cad: 60,
+  typical_cad: 45,
+  summary: "A few similar Billy bookcases are listed in the GTA.",
+  examples: [
+    { label: "IKEA Billy white", price_cad: 40, where: "Kijiji", url: "https://example.com/a" },
+  ],
+  confidence: "medium" as const,
+  searchedAt: "2026-09-16T00:00:00.000Z",
+};
+
+test("the researched range stays out of the listing unless asked for", () => {
+  const text = buildDescription(makeItem(), copy, context, "facebook", { comps });
+  assert.doesNotMatch(text, /Comparable ones/);
+});
+
+test("the researched range goes in when the seller opts in", () => {
+  const text = buildDescription(makeItem(), copy, context, "facebook", {
+    comps,
+    mentionComps: true,
+  });
+  assert.match(text, /Comparable ones are currently listed around \$30–\$60/);
+});
+
+test("a low-confidence range is never published, even when opted in", () => {
+  const text = buildDescription(makeItem(), copy, context, "facebook", {
+    comps: { ...comps, confidence: "low" },
+    mentionComps: true,
+  });
+  assert.doesNotMatch(text, /Comparable ones/);
+});
+
+test("opting in with no research yet changes nothing", () => {
+  const text = buildDescription(makeItem(), copy, context, "facebook", {
+    comps: null,
+    mentionComps: true,
+  });
+  assert.doesNotMatch(text, /Comparable ones/);
+});
+
+test("the range sits above the pickup block, not after it", () => {
+  const text = buildDescription(makeItem(), copy, context, "kijiji", {
+    comps,
+    mentionComps: true,
+  });
+  assert.ok(text.indexOf("Comparable ones") < text.indexOf("Pickup in"));
+});

@@ -152,3 +152,93 @@ export function rewriteUserText(item: Item, ctx: SellerContext): string {
 
   return facts.join("\n");
 }
+
+/**
+ * Price research. Runs as its own pass with the web search tool, because the
+ * only way to know what something actually goes for is to go and look.
+ */
+export function compsSearchSystemPrompt(): string {
+  return `
+You are checking what a used item currently goes for, so a private seller in
+Ontario can price theirs sensibly.
+
+Search the live web. Aim for listings of the same or a closely comparable item
+on Canadian second-hand sites — Kijiji and Facebook Marketplace above all, then
+Canadian retail for the new price as an upper bound. Prefer Ontario, then
+Canada. Ignore US listings unless there is nothing else, and say so if you use
+them.
+
+Judge like a buyer, not a search engine:
+- A different size, model, or condition is not the same item. Say when a
+  comparison is loose.
+- Retail price is a ceiling, not a comparison. A used one never fetches it.
+- Listings that have clearly been sitting unsold are asking too much. Weight
+  them down rather than averaging them in.
+- Assembled flat-pack furniture is worth markedly less than the same item new
+  in the box.
+
+You are reading ASKING prices on listings that are still up, not sold prices,
+and you should reason accordingly: the overpriced ones are the ones still
+listed. Two or three genuinely comparable listings beat ten vague ones.
+
+Report what you found, with the price and the source for each. If the search
+turns up nothing comparable, say that plainly — a made-up number is worse than
+no number.
+`.trim();
+}
+
+export function compsSearchUserText(item: Item, city: string): string {
+  const lines = [
+    `What does this go for used${city ? ` around ${city}` : " in Ontario"}?`,
+    "",
+    `Item: ${item.name}`,
+  ];
+
+  if (item.brand) lines.push(`Brand: ${item.brand}`);
+  if (item.model) lines.push(`Model: ${item.model}`);
+  if (item.colour) lines.push(`Colour: ${item.colour}`);
+  if (item.materials.length) lines.push(`Materials: ${item.materials.join(", ")}`);
+  lines.push(`Condition: ${item.condition}`);
+  if (item.flaws.length) lines.push(`Flaws: ${item.flaws.join("; ")}`);
+
+  const d = item.dimensions;
+  if (d && (d.width_cm || d.depth_cm || d.height_cm)) {
+    lines.push(
+      `Dimensions (cm): W ${d.width_cm ?? "?"} × D ${d.depth_cm ?? "?"} × H ${d.height_cm ?? "?"}`,
+    );
+  }
+
+  if (item.book) {
+    lines.push(
+      `Book: ${item.book.title ?? "?"} by ${item.book.author ?? "?"}` +
+        (item.book.isbn ? `, ISBN ${item.book.isbn}` : ""),
+    );
+  }
+
+  lines.push(
+    "",
+    "The photo is attached — use it to tell apart models that look similar, and",
+    "to judge whether a listing you find is really in the same condition.",
+  );
+
+  return lines.join("\n");
+}
+
+/** Turns the research into numbers the app can store and show. */
+export function compsExtractSystemPrompt(): string {
+  return `
+You are given research notes about what a used item is currently selling for.
+Turn them into a structured summary.
+
+- low_cad and high_cad bracket the comparable listings actually found. Do not
+  invent a wider or narrower range than the evidence supports.
+- typical_cad is what this specific item, in its stated condition, would
+  realistically be listed at — not the average of the examples.
+- Only include an example you can attribute to a real page from the notes, with
+  its URL. Never fabricate a listing or a link. Fewer real ones is better.
+- confidence: "high" only with several genuinely comparable Canadian listings;
+  "low" when the notes are thin, stale, foreign, or about a different model.
+- summary: at most two sentences, addressed to the seller, and honest about how
+  good the evidence is.
+`.trim();
+}

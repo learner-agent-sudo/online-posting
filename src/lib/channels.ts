@@ -1,4 +1,4 @@
-import type { Condition, Item, ListingCopy, SellerContext } from "./types";
+import type { Comps, Condition, Item, ListingCopy, SellerContext } from "./types";
 
 /**
  * Channel adapters.
@@ -183,11 +183,22 @@ function truncate(text: string, limit: number): string {
   return (lastSpace > limit * 0.6 ? cut.slice(0, lastSpace) : cut).trimEnd() + "…";
 }
 
+export interface PackOptions {
+  comps?: Comps | null;
+  /**
+   * Whether the researched range goes into the public listing. Off by default:
+   * buyers do not care what other people are asking, and quoting a range is an
+   * invitation to haggle down to the bottom of it.
+   */
+  mentionComps?: boolean;
+}
+
 export function buildDescription(
   item: Item,
   copy: ListingCopy,
   ctx: SellerContext,
   channel: ChannelId,
+  options: PackOptions = {},
 ): string {
   const body = channel === "facebook" ? copy.facebook_description : copy.kijiji_description;
   const blocks = [body.trim()];
@@ -201,6 +212,13 @@ export function buildDescription(
     blocks.push(
       `Condition notes: ${item.flaws.join("; ")}.` +
         (item.condition === "for-parts" ? " Sold as-is, for parts or repair." : ""),
+    );
+  }
+
+  const comps = options.comps;
+  if (options.mentionComps && comps && comps.confidence !== "low") {
+    blocks.push(
+      `Comparable ones are currently listed around $${comps.low_cad}–$${comps.high_cad}.`,
     );
   }
 
@@ -225,6 +243,7 @@ export function buildPack(
   copy: ListingCopy,
   ctx: SellerContext,
   channel: ChannelId,
+  options: PackOptions = {},
 ): ChannelField[] {
   const fields: ChannelField[] = [
     {
@@ -235,7 +254,11 @@ export function buildPack(
     { label: "Price (CAD)", value: String(item.price.asking_cad), hint: item.price.rationale },
     { label: "Category", value: categoryFor(item, channel), hint: "Best guess — confirm on the form" },
     { label: "Condition", value: conditionFor(item, channel) },
-    { label: "Description", value: buildDescription(item, copy, ctx, channel), long: true },
+    {
+      label: "Description",
+      value: buildDescription(item, copy, ctx, channel, options),
+      long: true,
+    },
   ];
 
   if (ctx.city.trim()) {

@@ -8,6 +8,7 @@ const SettingsSchema = z.object({
   city: z.string().max(120),
   pickupNote: z.string().max(500),
   autoDraft: z.boolean(),
+  mentionCompsInListing: z.boolean(),
 });
 
 /**

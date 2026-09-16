@@ -1,4 +1,4 @@
-import type { Draft } from "./types";
+import type { Comps, Draft } from "./types";
 import type { ChannelId } from "./channels";
 
 /**
@@ -21,6 +21,8 @@ export interface StoredItem {
   photos: StoredPhoto[];
   /** Null until the desktop runs the analysis. */
   draft: Draft | null;
+  /** Null until price research is run; it is a separate, opt-in step. */
+  comps: Comps | null;
   posted: Record<ChannelId, boolean>;
   sold: boolean;
 }
@@ -28,11 +30,18 @@ export interface StoredItem {
 export interface Settings {
   city: string;
   pickupNote: string;
+  /** Put the researched range into the public listing text. Off by default. */
+  mentionCompsInListing: boolean;
   /** Run the analysis as soon as photos land, so a draft is waiting for you. */
   autoDraft: boolean;
 }
 
-export const DEFAULT_SETTINGS: Settings = { city: "", pickupNote: "", autoDraft: false };
+export const DEFAULT_SETTINGS: Settings = {
+  city: "",
+  pickupNote: "",
+  autoDraft: false,
+  mentionCompsInListing: false,
+};
 
 export function photoUrl(itemId: string, file: string): string {
   return `/api/handoff/${itemId}/photo/${file}`;

@@ -44,6 +44,7 @@ export default function Desktop() {
   const [enrichment, setEnrichment] = useState<BookFacts | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [regenerating, setRegenerating] = useState(false);
+  const [researching, setResearching] = useState(false);
   const [uploads, setUploads] = useState<PreparedPhoto[]>([]);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -199,6 +200,24 @@ export default function Desktop() {
       setError(err instanceof Error ? err.message : "Could not rewrite the text.");
     } finally {
       setRegenerating(false);
+    }
+  }
+
+  async function research() {
+    if (!current) return;
+    setResearching(true);
+    setError(null);
+    try {
+      const payload = await callJson<{ item: StoredItem }>(
+        "/api/comps",
+        jsonBody({ itemId: current.id }),
+      );
+      setCurrent(payload.item);
+      setItems((prev) => prev.map((i) => (i.id === payload.item.id ? payload.item : i)));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not look up prices.");
+    } finally {
+      setResearching(false);
     }
   }
 
@@ -366,6 +385,13 @@ export default function Desktop() {
             enrichment={enrichment}
             onRegenerate={() => void regenerate()}
             regenerating={regenerating}
+            comps={current.comps}
+            researching={researching}
+            onResearch={() => void research()}
+            mentionComps={settings.mentionCompsInListing}
+            onToggleMentionComps={(value) =>
+              void saveSettings({ mentionCompsInListing: value })
+            }
           />
           <div className="sticky-actions">
             <div className="inner btn-row">
@@ -397,6 +423,8 @@ export default function Desktop() {
             copy={current.draft.copy}
             context={context}
             folder={folder}
+            comps={current.comps}
+            mentionComps={settings.mentionCompsInListing}
             onTogglePosted={(channel) =>
               void patchItem(current, {
                 posted: { ...current.posted, [channel]: !current.posted[channel] },

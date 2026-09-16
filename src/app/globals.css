@@ -310,3 +310,30 @@ a:has(button) { text-decoration: none; display: block; flex: 1 1 140px; }
 @media (min-width: 720px) {
   main { max-width: 760px; }
 }
+
+/* --- price research --- */
+
+.price-range {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+.price-range-value {
+  font-size: 1.5rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.comps-list { list-style: none; margin: 8px 0 12px; padding: 0; }
+.comps-list li {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 0;
+  border-top: 1px solid var(--border);
+  font-size: 0.9rem;
+}
+.comps-list li:first-child { border-top: none; }
+.comps-list a { color: var(--text); }
+.comps-price { color: var(--text-dim); white-space: nowrap; font-variant-numeric: tabular-nums; }

@@ -3,7 +3,7 @@
 import { useState } from "react";
 import CopyField from "./CopyField";
 import { CHANNELS, CHANNEL_IDS, buildPack, type ChannelId } from "@/lib/channels";
-import type { Item, ListingCopy, SellerContext } from "@/lib/types";
+import type { Comps, Item, ListingCopy, SellerContext } from "@/lib/types";
 import { photoUrl, zipUrl, type StoredItem } from "@/lib/handoff-types";
 
 interface Props {
@@ -12,6 +12,8 @@ interface Props {
   copy: ListingCopy;
   context: SellerContext;
   folder: string | null;
+  comps: Comps | null;
+  mentionComps: boolean;
   onTogglePosted: (channel: ChannelId) => void;
 }
 
@@ -25,13 +27,15 @@ export default function ChannelPack({
   copy,
   context,
   folder,
+  comps,
+  mentionComps,
   onTogglePosted,
 }: Props) {
   const [active, setActive] = useState<ChannelId>("facebook");
   const [copiedPath, setCopiedPath] = useState(false);
 
   const channel = CHANNELS[active];
-  const fields = buildPack(item, copy, context, active);
+  const fields = buildPack(item, copy, context, active, { comps, mentionComps });
 
   async function copyFolder() {
     if (!folder) return;

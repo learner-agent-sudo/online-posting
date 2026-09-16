@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { deleteItem, getItem, itemFolderPath, updateItem } from "@/lib/store";
-import { DraftSchema } from "@/lib/types";
+import { CompsSchema, DraftSchema } from "@/lib/types";
 
 export const runtime = "nodejs";
 
@@ -10,6 +10,7 @@ type Context = { params: Promise<{ id: string }> };
 const PatchSchema = z.object({
   note: z.string().max(2000).optional(),
   draft: DraftSchema.nullable().optional(),
+  comps: CompsSchema.nullable().optional(),
   posted: z.object({ facebook: z.boolean(), kijiji: z.boolean() }).optional(),
   sold: z.boolean().optional(),
 });

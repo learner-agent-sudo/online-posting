@@ -83,6 +83,7 @@ export async function createItem(
     source,
     photos: stored,
     draft: null,
+    comps: null,
     posted: { facebook: false, kijiji: false },
     sold: false,
   };
