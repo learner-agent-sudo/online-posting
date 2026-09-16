@@ -1,146 +1,200 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import PairingCard from "@/components/PairingCard";
+import Inbox from "@/components/Inbox";
 import PhotoPicker from "@/components/PhotoPicker";
 import ReviewForm from "@/components/ReviewForm";
 import ChannelPack from "@/components/ChannelPack";
-import Ledger from "@/components/Ledger";
 import type { ChannelId } from "@/lib/channels";
-import { makeThumbnail, type PreparedPhoto } from "@/lib/photos";
-import {
-  DEFAULT_SELLER_CONTEXT,
-  type Draft,
-  type Item,
-  type SellerContext,
-} from "@/lib/types";
+import type { PreparedPhoto } from "@/lib/photos";
+import type { Item, SellerContext } from "@/lib/types";
 import type { BookFacts } from "@/lib/books";
 import {
-  addEntry,
-  loadLedger,
-  removeEntry,
-  togglePosted,
-  updateEntry,
-  type LedgerEntry,
-} from "@/lib/storage";
+  DEFAULT_SETTINGS,
+  type Settings,
+  type StoredItem,
+} from "@/lib/handoff-types";
 
-type Step = "capture" | "review" | "pack";
+type View = "inbox" | "review" | "pack";
 
-const CONTEXT_KEY = "listkit.context.v1";
-const NO_CHANNELS: Record<ChannelId, boolean> = { facebook: false, kijiji: false };
+const POLL_MS = 4000;
 
-/** City and pickup terms rarely change between listings, so remember them. */
-function loadSavedContext(): SellerContext {
-  try {
-    const raw = localStorage.getItem(CONTEXT_KEY);
-    if (!raw) return DEFAULT_SELLER_CONTEXT;
-    const saved = JSON.parse(raw) as Partial<SellerContext>;
-    return {
-      hint: "",
-      city: saved.city ?? "",
-      pickupNote: saved.pickupNote ?? "",
-    };
-  } catch {
-    return DEFAULT_SELLER_CONTEXT;
-  }
+async function callJson<T>(url: string, init?: RequestInit): Promise<T> {
+  const res = await fetch(url, init);
+  const payload = (await res.json()) as T & { error?: string };
+  if (!res.ok) throw new Error(payload.error ?? `Request failed (${res.status}).`);
+  return payload;
 }
 
-export default function Home() {
-  const [step, setStep] = useState<Step>("capture");
-  const [photos, setPhotos] = useState<PreparedPhoto[]>([]);
-  const [context, setContext] = useState<SellerContext>(DEFAULT_SELLER_CONTEXT);
-  const [draft, setDraft] = useState<Draft | null>(null);
+function jsonBody(body: unknown): RequestInit {
+  return {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  };
+}
+
+export default function Desktop() {
+  const [view, setView] = useState<View>("inbox");
+  const [items, setItems] = useState<StoredItem[]>([]);
+  const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
+  const [current, setCurrent] = useState<StoredItem | null>(null);
+  const [folder, setFolder] = useState<string | null>(null);
   const [enrichment, setEnrichment] = useState<BookFacts | null>(null);
-  const [entryId, setEntryId] = useState<string | null>(null);
-  const [posted, setPosted] = useState<Record<ChannelId, boolean>>(NO_CHANNELS);
-  const [ledger, setLedger] = useState<LedgerEntry[]>([]);
-  const [analyzing, setAnalyzing] = useState(false);
+  const [busyId, setBusyId] = useState<string | null>(null);
   const [regenerating, setRegenerating] = useState(false);
+  const [uploads, setUploads] = useState<PreparedPhoto[]>([]);
+  const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // localStorage is not available during server rendering.
-  useEffect(() => {
-    setContext(loadSavedContext());
-    setLedger(loadLedger());
+  // Items already sent for auto-drafting, so a slow analysis is not started
+  // twice by the next poll.
+  const autoDrafted = useRef<Set<string>>(new Set());
+
+  const context: SellerContext = {
+    hint: current?.note ?? "",
+    city: settings.city,
+    pickupNote: settings.pickupNote,
+  };
+
+  const refresh = useCallback(async () => {
+    try {
+      const { items } = await callJson<{ items: StoredItem[] }>("/api/handoff");
+      setItems(items);
+      return items;
+    } catch {
+      // A failed poll is not worth an error banner; the next one will retry.
+      return null;
+    }
   }, []);
 
-  function updateContext(changes: Partial<SellerContext>) {
-    const next = { ...context, ...changes };
-    setContext(next);
-    try {
-      localStorage.setItem(
-        CONTEXT_KEY,
-        JSON.stringify({ city: next.city, pickupNote: next.pickupNote }),
-      );
-    } catch {
-      // Private mode. The values still hold for this session.
-    }
-  }
+  useEffect(() => {
+    void refresh();
+    callJson<{ settings: Settings }>("/api/settings")
+      .then((payload) => setSettings(payload.settings))
+      .catch(() => undefined);
+  }, [refresh]);
 
-  async function postJson<T>(url: string, body: unknown): Promise<T> {
-    const res = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
-    const payload = (await res.json()) as T & { error?: string };
-    if (!res.ok) throw new Error(payload.error ?? `Request failed (${res.status}).`);
-    return payload;
-  }
+  // Watch for photos arriving from the phone.
+  useEffect(() => {
+    if (view !== "inbox") return;
+    const timer = window.setInterval(() => void refresh(), POLL_MS);
+    return () => window.clearInterval(timer);
+  }, [view, refresh]);
 
-  async function analyze() {
-    if (photos.length === 0) {
-      setError("Add at least one photo first.");
-      return;
-    }
+  const analyze = useCallback(
+    async (item: StoredItem, open: boolean) => {
+      setBusyId(item.id);
+      setError(null);
+      try {
+        const payload = await callJson<{ item: StoredItem; enrichment: BookFacts | null }>(
+          "/api/analyze",
+          jsonBody({ itemId: item.id }),
+        );
+        setItems((prev) => prev.map((i) => (i.id === payload.item.id ? payload.item : i)));
+        if (open) {
+          setCurrent(payload.item);
+          setEnrichment(payload.enrichment);
+          setView("review");
+          window.scrollTo(0, 0);
+        }
+        return payload.item;
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Could not write the listing.");
+        return null;
+      } finally {
+        setBusyId(null);
+      }
+    },
+    [],
+  );
+
+  // Optional: draft each item as it lands, so a listing is waiting when you
+  // sit down. Off by default because every draft costs a few cents.
+  useEffect(() => {
+    if (!settings.autoDraft || busyId) return;
+    const next = items.find((item) => !item.draft && !autoDrafted.current.has(item.id));
+    if (!next) return;
+    autoDrafted.current.add(next.id);
+    void analyze(next, false);
+  }, [items, settings.autoDraft, busyId, analyze]);
+
+  async function openItem(item: StoredItem) {
     setError(null);
-    setAnalyzing(true);
-
     try {
-      const result = await postJson<{ draft: Draft; enrichment: BookFacts | null }>(
-        "/api/analyze",
-        {
-          photos: photos.map((p) => ({ media_type: p.media_type, data: p.data })),
-          context,
-        },
+      const payload = await callJson<{ item: StoredItem; folder: string }>(
+        `/api/handoff/${item.id}`,
       );
-
-      setDraft(result.draft);
-      setEnrichment(result.enrichment);
-      setPosted(NO_CHANNELS);
-
-      const id = crypto.randomUUID();
-      setEntryId(id);
-      setLedger(
-        addEntry({
-          id,
-          name: result.draft.item.name,
-          askingCad: result.draft.item.price.asking_cad,
-          createdAt: new Date().toISOString(),
-          thumb: await makeThumbnail(photos[0]),
-          posted: { ...NO_CHANNELS },
-          sold: false,
-        }),
-      );
-
-      setStep("review");
+      setFolder(payload.folder);
+      if (!payload.item.draft) {
+        await analyze(payload.item, true);
+        return;
+      }
+      setCurrent(payload.item);
+      setEnrichment(null);
+      setView("review");
       window.scrollTo(0, 0);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Something went wrong.");
-    } finally {
-      setAnalyzing(false);
+      setError(err instanceof Error ? err.message : "Could not open that item.");
     }
+  }
+
+  async function patchItem(item: StoredItem, patch: Partial<StoredItem>) {
+    const optimistic = { ...item, ...patch };
+    setItems((prev) => prev.map((i) => (i.id === item.id ? optimistic : i)));
+    if (current?.id === item.id) setCurrent(optimistic);
+    try {
+      await callJson(`/api/handoff/${item.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(patch),
+      });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not save that change.");
+      void refresh();
+    }
+  }
+
+  async function deleteItem(item: StoredItem) {
+    const name = item.draft?.item.name ?? item.note ?? "this item";
+    if (!window.confirm(`Delete ${name} and its photos? This cannot be undone.`)) return;
+    setItems((prev) => prev.filter((i) => i.id !== item.id));
+    if (current?.id === item.id) {
+      setCurrent(null);
+      setView("inbox");
+    }
+    try {
+      await callJson(`/api/handoff/${item.id}`, { method: "DELETE" });
+    } catch {
+      void refresh();
+    }
+  }
+
+  function updateItemFacts(next: Item) {
+    if (!current?.draft) return;
+    const draft = { ...current.draft, item: next };
+    setCurrent({ ...current, draft });
+    setItems((prev) => prev.map((i) => (i.id === current.id ? { ...i, draft } : i)));
+  }
+
+  /** Persist edited facts without rewriting the text. */
+  async function saveFacts() {
+    if (!current?.draft) return;
+    await patchItem(current, { draft: current.draft });
   }
 
   async function regenerate() {
-    if (!draft) return;
-    setError(null);
+    if (!current?.draft) return;
     setRegenerating(true);
+    setError(null);
     try {
-      const result = await postJson<{ copy: Draft["copy"] }>("/api/rewrite", {
-        item: draft.item,
-        context,
-      });
-      setDraft({ ...draft, copy: result.copy });
+      const payload = await callJson<{ item: StoredItem }>(
+        "/api/rewrite",
+        jsonBody({ itemId: current.id, item: current.draft.item }),
+      );
+      setCurrent(payload.item);
+      setItems((prev) => prev.map((i) => (i.id === payload.item.id ? payload.item : i)));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not rewrite the text.");
     } finally {
@@ -148,29 +202,50 @@ export default function Home() {
     }
   }
 
-  function updateItem(item: Item) {
-    if (!draft) return;
-    setDraft({ ...draft, item });
-    if (entryId) {
-      setLedger(updateEntry(entryId, { name: item.name, askingCad: item.price.asking_cad }));
+  async function saveSettings(changes: Partial<Settings>) {
+    const next = { ...settings, ...changes };
+    setSettings(next);
+    try {
+      await callJson("/api/settings", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(next),
+      });
+    } catch {
+      // Keeps working for this session; it will be retried on the next change.
     }
   }
 
-  function markPosted(channel: ChannelId) {
-    setPosted((prev) => ({ ...prev, [channel]: !prev[channel] }));
-    if (entryId) setLedger(togglePosted(entryId, channel));
+  /** Adding photos from this laptop instead of the phone. */
+  async function uploadFromDesktop() {
+    if (uploads.length === 0) return;
+    setUploading(true);
+    setError(null);
+    try {
+      await callJson(
+        "/api/handoff",
+        jsonBody({
+          photos: uploads.map((p) => ({ media_type: p.media_type, data: p.data })),
+          note: "",
+          source: "desktop",
+        }),
+      );
+      uploads.forEach((photo) => URL.revokeObjectURL(photo.previewUrl));
+      setUploads([]);
+      await refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not add those photos.");
+    } finally {
+      setUploading(false);
+    }
   }
 
-  function startOver() {
-    photos.forEach((photo) => URL.revokeObjectURL(photo.previewUrl));
-    setPhotos([]);
-    setDraft(null);
+  function backToInbox() {
+    setView("inbox");
+    setCurrent(null);
     setEnrichment(null);
-    setEntryId(null);
-    setPosted(NO_CHANNELS);
-    setContext({ ...context, hint: "" });
-    setError(null);
-    setStep("capture");
+    setFolder(null);
+    void refresh();
     window.scrollTo(0, 0);
   }
 
@@ -178,7 +253,9 @@ export default function Home() {
     <main>
       <header className="app">
         <h1>ListKit</h1>
-        <span className="tagline">photos → listing</span>
+        <span className="tagline">
+          {view === "inbox" ? "phone sends · laptop posts" : current?.draft?.item.name ?? ""}
+        </span>
       </header>
 
       {error && (
@@ -187,22 +264,27 @@ export default function Home() {
         </div>
       )}
 
-      {step === "capture" && (
+      {view === "inbox" && (
         <>
-          <PhotoPicker photos={photos} onChange={setPhotos} onError={setError} />
+          <PairingCard />
+
+          <Inbox
+            items={items}
+            busyId={busyId}
+            onOpen={(item) => void openItem(item)}
+            onTogglePosted={(item, channel) =>
+              void patchItem(item, {
+                posted: { ...item.posted, [channel]: !item.posted[channel] },
+              })
+            }
+            onToggleSold={(item) => void patchItem(item, { sold: !item.sold })}
+            onDelete={(item) => void deleteItem(item)}
+          />
 
           <div className="card">
-            <h2>Anything worth knowing?</h2>
-            <label htmlFor="hint">What is it, and anything the camera missed</label>
-            <textarea
-              id="hint"
-              value={context.hint}
-              placeholder="Solid oak dining table, seats 6. Bought 2019. Small water ring on one corner."
-              onChange={(e) => updateContext({ hint: e.target.value })}
-            />
-            <p className="help">
-              Optional, but two lines here makes a much better listing than photos
-              alone — you know things the photos cannot show.
+            <h2>Pickup details</h2>
+            <p className="muted">
+              Added to the end of every listing, so you only type them once.
             </p>
 
             <label htmlFor="city">Pickup city</label>
@@ -210,9 +292,9 @@ export default function Home() {
               id="city"
               type="text"
               list="ontario-cities"
-              value={context.city}
+              value={settings.city}
               placeholder="Mississauga, ON"
-              onChange={(e) => updateContext({ city: e.target.value })}
+              onChange={(e) => void saveSettings({ city: e.target.value })}
             />
             <datalist id="ontario-cities">
               {[
@@ -230,68 +312,73 @@ export default function Home() {
             <input
               id="pickup"
               type="text"
-              value={context.pickupNote}
+              value={settings.pickupNote}
               placeholder="Near Hurontario & Eglinton. Evenings and weekends."
-              onChange={(e) => updateContext({ pickupNote: e.target.value })}
+              onChange={(e) => void saveSettings({ pickupNote: e.target.value })}
             />
             <p className="help">
-              Added to the end of every description. Keep it to a neighbourhood or
-              intersection — never your street address.
+              Keep it to a neighbourhood or intersection — never your street address.
             </p>
+
+            <label className="checkbox-row" htmlFor="auto">
+              <input
+                id="auto"
+                type="checkbox"
+                checked={settings.autoDraft}
+                onChange={(e) => void saveSettings({ autoDraft: e.target.checked })}
+              />
+              <span>
+                Draft automatically when photos arrive
+                <span className="help" style={{ display: "block", margin: 0 }}>
+                  A listing is ready when you sit down, but every arrival costs a
+                  few cents whether you use it or not.
+                </span>
+              </span>
+            </label>
           </div>
 
-          <Ledger
-            entries={ledger}
-            onTogglePosted={(id, channel) => setLedger(togglePosted(id, channel))}
-            onToggleSold={(id) => {
-              const entry = ledger.find((e) => e.id === id);
-              if (entry) setLedger(updateEntry(id, { sold: !entry.sold }));
-            }}
-            onRemove={(id) => setLedger(removeEntry(id))}
-          />
-
-          <div className="sticky-actions">
-            <div className="inner">
-              <button
-                className="btn-primary"
-                type="button"
-                onClick={analyze}
-                disabled={analyzing || photos.length === 0}
-              >
-                {analyzing ? (
-                  <>
-                    <span className="spinner" />
-                    Reading the photos…
-                  </>
-                ) : (
-                  "Write my listing"
-                )}
-              </button>
-            </div>
+          <div className="card">
+            <h2>Add photos from this laptop</h2>
+            <PhotoPicker photos={uploads} onChange={setUploads} onError={setError} />
+            <button
+              type="button"
+              onClick={() => void uploadFromDesktop()}
+              disabled={uploading || uploads.length === 0}
+            >
+              {uploading ? (
+                <>
+                  <span className="spinner" />
+                  Adding…
+                </>
+              ) : (
+                "Add to inbox"
+              )}
+            </button>
           </div>
         </>
       )}
 
-      {step === "review" && draft && (
+      {view === "review" && current?.draft && (
         <>
           <ReviewForm
-            item={draft.item}
-            onChange={updateItem}
+            item={current.draft.item}
+            onChange={updateItemFacts}
             enrichment={enrichment}
-            onRegenerate={regenerate}
+            onRegenerate={() => void regenerate()}
             regenerating={regenerating}
           />
           <div className="sticky-actions">
             <div className="inner btn-row">
-              <button type="button" onClick={() => setStep("capture")}>
-                Back
+              <button type="button" onClick={backToInbox}>
+                Back to inbox
               </button>
               <button
                 className="btn-primary"
                 type="button"
                 style={{ flex: "2 1 200px" }}
-                onClick={() => {
-                  setStep("pack");
+                onClick={async () => {
+                  await saveFacts();
+                  setView("pack");
                   window.scrollTo(0, 0);
                 }}
               >
@@ -302,23 +389,32 @@ export default function Home() {
         </>
       )}
 
-      {step === "pack" && draft && (
+      {view === "pack" && current?.draft && (
         <>
           <ChannelPack
-            item={draft.item}
-            copy={draft.copy}
+            stored={current}
+            item={current.draft.item}
+            copy={current.draft.copy}
             context={context}
-            photos={photos}
-            posted={posted}
-            onTogglePosted={markPosted}
+            folder={folder}
+            onTogglePosted={(channel) =>
+              void patchItem(current, {
+                posted: { ...current.posted, [channel]: !current.posted[channel] },
+              })
+            }
           />
           <div className="sticky-actions">
             <div className="inner btn-row">
-              <button type="button" onClick={() => setStep("review")}>
+              <button type="button" onClick={() => setView("review")}>
                 Edit details
               </button>
-              <button className="btn-primary" type="button" style={{ flex: "2 1 200px" }} onClick={startOver}>
-                List something else
+              <button
+                className="btn-primary"
+                type="button"
+                style={{ flex: "2 1 200px" }}
+                onClick={backToInbox}
+              >
+                Done — back to inbox
               </button>
             </div>
           </div>

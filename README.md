@@ -1,24 +1,38 @@
 # ListKit
 
-Photograph a thing, get a finished Facebook Marketplace and Kijiji listing you
-can paste in. Built for one household in Ontario selling furniture and books
-locally — cash on pickup, no shipping.
+Photograph a thing on your phone, write the listing on your laptop, paste it into
+Facebook Marketplace or Kijiji. Built for one household in Ontario selling
+furniture and books locally — cash on pickup, no shipping.
 
-## What it does
+## How it works
 
-1. **Take photos on your phone.** They are downscaled and re-encoded in the
-   browser, which strips all EXIF metadata — including the GPS coordinates your
-   phone writes into every photo, which is your home address.
-2. **Claude reads them** and returns what the item is, its condition, visible
-   flaws, an estimated price in CAD, and listing text written separately for
-   each site's length limits and audience.
-3. **You review and correct.** Anything the photos could not answer comes back
-   as a short checklist instead of an invented fact.
-4. **You paste.** One copy button per form field, in the order each site asks
-   for them, plus a share sheet that hands the cleaned photos to the Facebook
-   app or your photo library.
-5. **It remembers where things are live**, so the Kijiji ad comes down when the
-   thing sells on Facebook.
+The laptop runs the app and is the hub. The phone is just a camera.
+
+```
+  phone                        laptop (runs the app)
+  ─────                        ────────────────────
+  scan QR                      shows QR + inbox
+  take photos      ──wifi──▶   photos land on its disk
+  say a sentence               Claude drafts the listing
+  done                         you review, correct, paste
+                               photos are already here to upload
+```
+
+**Phone:** open the QR link, take photos, optionally dictate a sentence about
+the thing, tap send. That is the entire phone experience — no typing, no
+copying, no waiting for anything to process.
+
+**Laptop:** the item appears in the inbox within a few seconds. Open it, and
+Claude identifies the thing, judges its condition, names visible flaws,
+estimates a price in CAD, and writes listing text sized for each site. You
+correct anything wrong, then get one copy button per form field and the photos
+sitting in a folder ready to drag into the upload box.
+
+Nothing goes to a cloud service. The photos never leave your house.
+
+This split also fixes the thing that made the phone-only version annoying:
+copying now happens on the laptop at `localhost`, which browsers treat as a
+secure context, so the clipboard actually works.
 
 ## What it deliberately does not do
 
@@ -26,21 +40,17 @@ locally — cash on pickup, no shipping.
 
 Neither Facebook nor Kijiji offers a public API for personal listings. Meta's
 Commerce Platform API is a restricted alpha for approved business partners;
-Kijiji has no public posting API and the community projects that drive its
-internal mobile API break whenever Kijiji changes its backend.
+Kijiji has no public posting API, and the community projects that drive its
+internal one break whenever Kijiji changes its backend.
 
 That leaves browser automation, which both sites' terms prohibit and which is
 enforced by disabling accounts rather than by warning them. A Marketplace ban is
 hard to appeal and not worth risking on a family account to save thirty seconds
 of pasting. So this app does every part of the job except the final click.
 
-If you later want one channel that *is* fully automatable, eBay's Sell API is
-open to individual sellers — but eBay is built around shipping, so it is a poor
-fit for local pickup.
-
 ## Setup
 
-Requires Node 20 or newer.
+On the laptop, once. Requires Node 20 or newer.
 
 ```bash
 npm install
@@ -49,77 +59,92 @@ npm run dev
 ```
 
 Get a key from [console.anthropic.com](https://console.anthropic.com/settings/keys).
-It stays on the server and is never sent to the browser — that is the only
-reason this app has a backend at all.
+It stays on the laptop and is never sent to either browser.
 
-### Using it from your phone
+Then open http://localhost:3000, click **Show QR code**, and scan it with the
+phone's camera. On the phone, use **Add to Home Screen** so it opens like an app
+next time.
 
-`npm run dev` prints a Network address (`http://192.168.x.x:3000`). Open that on
-your phone while it is on the same wifi, then use **Add to Home Screen** so it
-opens full-screen like an app.
+The phone has to be on the same wifi, and the laptop has to be running the app
+when you photograph something. If you want it always available, `npm run build &&
+npm start` on a machine that stays on.
 
-One catch: `navigator.clipboard` only works in a secure context, so over plain
-http the copy buttons fall back to a manual-select prompt. Deploying (below)
-gives you https and makes them work properly.
+Any laptop in the house can be the hub — the address in the QR code is detected
+at runtime, so it works the same on a second computer or after the router hands
+out a different address.
 
-### Deploying
+### Where things are kept
 
-It is a stock Next.js app, so Vercel's free tier works: import the repo, set
-`ANTHROPIC_API_KEY` as an environment variable, deploy. Note that this puts a
-URL on the public internet with your API key behind it — if that bothers you,
-add Vercel's password protection, or just run it locally when you need it.
+Everything lives in `.data/` next to the code:
+
+```
+.data/settings.json           pickup city and note
+.data/items/<id>/meta.json    the note, the draft, where it is posted
+.data/items/<id>/01.jpg       the photos, in upload order
+```
+
+Plain files, so you can open the folder, back it up, or delete an item by hand.
+Set `LISTKIT_DATA_DIR` to put it somewhere else.
 
 ## What it costs
 
 Roughly 10–25 cents per listing, most of it the photos — images dominate the
 input tokens, so five photos costs about five times one. **This is an estimate
 from token maths, not a measurement**; watch your first few listings in the
-Anthropic console and decide whether it is worth it to you. Rewriting the text
-after an edit is much cheaper, since it sends no photos.
+Anthropic console. Rewriting the text after an edit is much cheaper, since it
+sends no photos.
+
+There is a **Draft automatically when photos arrive** switch on the laptop. It
+is off by default, because with it on you pay for every batch the phone sends
+whether you end up listing it or not.
 
 ## Honest limitations
 
+- **Anyone on your wifi can reach it.** There is no login. On a home network
+  that is a reasonable trade for a household tool, but it means guests on your
+  wifi could open the inbox, and it is not something to expose to the internet
+  as-is.
 - **Prices are guesses.** The model estimates from the photos and general
   knowledge of the Ontario used market. It has no access to live comparable
   sales. Treat the number as a starting point and spend a minute searching the
   same item on Kijiji before you commit.
-- **Category paths drift.** The category suggestions in `src/lib/channels.ts`
-  come from observing the sites, not from a published taxonomy. When one stops
-  matching the real dropdown, fix it there.
+- **Category paths drift.** The suggestions in `src/lib/channels.ts` come from
+  observing the sites, not from a published taxonomy. When one stops matching
+  the real dropdown, fix it there.
 - **Dimensions are estimated unless you type them.** The model flags its own
   guesses as approximate and asks you to measure. Measure — buyers ask every
   time.
-- **The ledger is per-device.** It lives in `localStorage`, so your phone and
-  your laptop keep separate lists, and clearing site data erases it. That is a
-  deliberate trade against running a database for a household app.
-- **One item at a time.** Batch mode for a box of books would be a natural next
-  step but is not built.
+- **One item per batch.** Photograph one thing, send, photograph the next.
+  Batch mode for a box of books would be a natural next step but is not built.
 - **The live model call is untested.** The environment this was built in had no
   API key, so the full request has never actually run. Everything around it is
-  tested: the schema is verified to satisfy the strict structured-output rules
-  the API enforces, validation and error paths were exercised against a running
-  server, and 25 unit tests cover the channel adapters. But the first real photo
+  tested: the schema is verified against the strict structured-output rules the
+  API enforces, the whole handoff was exercised against a running server
+  (upload, serve, zip, patch, delete, path-traversal attempts), and 28 unit
+  tests cover the channel adapters and the zip writer. But the first real photo
   you send will be the first real photo it has ever seen — expect to tune the
   prompts in `src/lib/prompt.ts` once you see what comes back.
 
 ## Layout
 
 ```
-src/lib/types.ts      one canonical Item; every channel is a projection of it
-src/lib/channels.ts   Facebook and Kijiji field maps, limits, categories
-src/lib/prompt.ts     the listing voice and the honesty rules
-src/lib/photos.ts     browser-side EXIF stripping and downscaling
-src/lib/books.ts      Open Library ISBN lookup (best effort, never blocking)
-src/lib/storage.ts    the per-device ledger
-src/app/api/          analyze (photos -> draft) and rewrite (facts -> copy)
+src/app/capture/          the phone: photos in, nothing else
+src/app/page.tsx          the laptop: inbox, review, copy-and-paste
+src/app/api/handoff/      upload, list, serve photos, zip, delete
+src/app/api/analyze/      photos on disk -> drafted listing
+src/lib/store.ts          the .data/ file store
+src/lib/channels.ts       Facebook and Kijiji field maps, limits, categories
+src/lib/prompt.ts         the listing voice and the honesty rules
+src/lib/photos.ts         browser-side EXIF stripping and downscaling
+src/lib/zip.ts            dependency-free zip so photos are one download
 ```
 
 Adding a third site means writing one adapter in `channels.ts` — the pipeline
-does not need to change.
+does not change.
 
 ## Tests
 
 ```bash
-npm test        # 25 unit tests, no network, no API key needed
+npm test        # 28 unit tests, no network, no API key needed
 npm run build   # production build + typecheck
 ```

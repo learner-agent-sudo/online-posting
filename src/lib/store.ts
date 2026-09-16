@@ -1,8 +1,8 @@
 import { randomUUID } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
-import type { Draft } from "./types";
-import type { ChannelId } from "./channels";
+import type { Settings, StoredItem, StoredPhoto } from "./handoff-types";
+import { DEFAULT_SETTINGS } from "./handoff-types";
 
 /**
  * Server-side store for the phone-to-desktop handoff.
@@ -23,33 +23,8 @@ const DATA_DIR = process.env.LISTKIT_DATA_DIR
 const ITEMS_DIR = path.join(DATA_DIR, "items");
 const SETTINGS_FILE = path.join(DATA_DIR, "settings.json");
 
-export interface StoredPhoto {
-  file: string;
-  bytes: number;
-  mediaType: string;
-}
-
-export interface StoredItem {
-  id: string;
-  createdAt: string;
-  /** Whatever the person typed on the phone while photographing it. */
-  note: string;
-  source: "phone" | "desktop";
-  photos: StoredPhoto[];
-  /** Null until the desktop runs the analysis. */
-  draft: Draft | null;
-  posted: Record<ChannelId, boolean>;
-  sold: boolean;
-}
-
-export interface Settings {
-  city: string;
-  pickupNote: string;
-  /** Run the analysis as soon as photos land, so a draft is waiting for you. */
-  autoDraft: boolean;
-}
-
-export const DEFAULT_SETTINGS: Settings = { city: "", pickupNote: "", autoDraft: false };
+export type { StoredItem, StoredPhoto, Settings } from "./handoff-types";
+export { DEFAULT_SETTINGS } from "./handoff-types";
 
 async function ensureDirs() {
   await fs.mkdir(ITEMS_DIR, { recursive: true });

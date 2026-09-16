@@ -1,6 +1,6 @@
 import { getItem, itemFolderPath, readPhoto } from "@/lib/store";
 import { buildZip, type ZipEntry } from "@/lib/zip";
-import { exportFilename } from "@/lib/photos";
+import { exportFilename } from "@/lib/handoff-types";
 
 export const runtime = "nodejs";
 

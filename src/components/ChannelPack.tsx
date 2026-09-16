@@ -4,74 +4,44 @@ import { useState } from "react";
 import CopyField from "./CopyField";
 import { CHANNELS, CHANNEL_IDS, buildPack, type ChannelId } from "@/lib/channels";
 import type { Item, ListingCopy, SellerContext } from "@/lib/types";
-import { exportFilename, type PreparedPhoto } from "@/lib/photos";
+import { photoUrl, zipUrl, type StoredItem } from "@/lib/handoff-types";
 
 interface Props {
+  stored: StoredItem;
   item: Item;
   copy: ListingCopy;
   context: SellerContext;
-  photos: PreparedPhoto[];
-  posted: Record<ChannelId, boolean>;
+  folder: string | null;
   onTogglePosted: (channel: ChannelId) => void;
 }
 
-function base64ToFile(photo: PreparedPhoto, filename: string): File {
-  const binary = atob(photo.data);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
-  return new File([bytes], filename, { type: photo.media_type });
-}
-
+/**
+ * The desktop half of the job. Everything here assumes a real keyboard and a
+ * working clipboard, which is the entire reason posting moved off the phone.
+ */
 export default function ChannelPack({
+  stored,
   item,
   copy,
   context,
-  photos,
-  posted,
+  folder,
   onTogglePosted,
 }: Props) {
   const [active, setActive] = useState<ChannelId>("facebook");
-  const [shareNote, setShareNote] = useState<string | null>(null);
+  const [copiedPath, setCopiedPath] = useState(false);
 
   const channel = CHANNELS[active];
   const fields = buildPack(item, copy, context, active);
 
-  const files = photos.map((photo, index) =>
-    base64ToFile(photo, exportFilename(index, item.name)),
-  );
-
-  /**
-   * The share sheet is the phone-native path: it hands the cleaned photos
-   * straight to Photos or to the Facebook app. Desktop browsers mostly cannot
-   * share files, so they fall back to plain downloads.
-   */
-  async function sharePhotos() {
-    setShareNote(null);
-    if (navigator.canShare?.({ files })) {
-      try {
-        await navigator.share({ files, title: item.name });
-        return;
-      } catch (err) {
-        // A user cancelling the sheet throws AbortError — not worth a message.
-        if (err instanceof DOMException && err.name === "AbortError") return;
-      }
+  async function copyFolder() {
+    if (!folder) return;
+    try {
+      await navigator.clipboard.writeText(folder);
+      setCopiedPath(true);
+      window.setTimeout(() => setCopiedPath(false), 1800);
+    } catch {
+      // Clipboard blocked; the path is on screen to read either way.
     }
-    downloadPhotos();
-    setShareNote("Sharing is not available here, so the photos were downloaded instead.");
-  }
-
-  function downloadPhotos() {
-    files.forEach((file) => {
-      const url = URL.createObjectURL(file);
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = file.name;
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      // Give the browser a beat to start the download before revoking.
-      window.setTimeout(() => URL.revokeObjectURL(url), 10_000);
-    });
   }
 
   return (
@@ -86,7 +56,7 @@ export default function ChannelPack({
             onClick={() => setActive(id)}
           >
             {CHANNELS[id].name}
-            {posted[id] ? " ✓" : ""}
+            {stored.posted[id] ? " ✓" : ""}
           </button>
         ))}
       </div>
@@ -107,18 +77,38 @@ export default function ChannelPack({
       <div className="card">
         <h2>2. Add the photos</h2>
         <p className="muted">
-          {photos.length} photo{photos.length === 1 ? "" : "s"}, numbered in order.
-          Metadata already removed.
+          Already on this laptop, numbered in upload order, with the camera&apos;s
+          location data stripped out.
         </p>
-        <div className="btn-row">
-          <button type="button" onClick={sharePhotos}>
-            Share photos
-          </button>
-          <button type="button" onClick={downloadPhotos}>
-            Download
-          </button>
+
+        <div className="photo-grid">
+          {stored.photos.map((photo, index) => (
+            <div className="photo-tile" key={photo.file}>
+              <img src={photoUrl(stored.id, photo.file)} alt={`Photo ${index + 1}`} />
+              <span className="badge">{index === 0 ? "Cover" : index + 1}</span>
+            </div>
+          ))}
         </div>
-        {shareNote && <p className="help">{shareNote}</p>}
+
+        <p className="help">
+          Drag them straight from the folder into the upload box, or download them
+          as one zip.
+        </p>
+
+        <div className="btn-row">
+          <a href={zipUrl(stored.id)} download>
+            <button type="button" style={{ width: "100%" }}>
+              Download all as zip
+            </button>
+          </a>
+          {folder && (
+            <button type="button" onClick={copyFolder}>
+              {copiedPath ? "Path copied" : "Copy folder path"}
+            </button>
+          )}
+        </div>
+
+        {folder && <div className="field-value" style={{ fontSize: "0.8rem" }}>{folder}</div>}
       </div>
 
       <div className="card">
@@ -139,10 +129,10 @@ export default function ChannelPack({
               key={id}
               type="button"
               className="toggle"
-              aria-pressed={posted[id]}
+              aria-pressed={stored.posted[id]}
               onClick={() => onTogglePosted(id)}
             >
-              {posted[id] ? "Live on " : "Not on "}
+              {stored.posted[id] ? "Live on " : "Not on "}
               {CHANNELS[id].name}
             </button>
           ))}

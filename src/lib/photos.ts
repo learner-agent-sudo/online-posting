@@ -148,13 +148,3 @@ export function formatBytes(bytes: number): string {
   if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
-
-/** Filenames that sort into the order the photos should be uploaded in. */
-export function exportFilename(index: number, itemName: string): string {
-  const slug = itemName
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 40) || "listing";
-  return `${String(index + 1).padStart(2, "0")}-${slug}.jpg`;
-}
